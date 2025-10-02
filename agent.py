@@ -247,7 +247,7 @@ class Clean:
 
 if __name__ == "__main__":
 
-    pth = '/Users/keeganhill/Desktop/Projects/Trees/tennis_atp'
+    pth = ''
     bot = Clean(pth)
     bot.group_similar_dataframes()
     bot.stack_similar_dataframes()
