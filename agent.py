@@ -89,7 +89,7 @@ class Clean:
 
 if __name__ == "__main__":
 
-    pth = '/Users/keeganhill/Desktop/Projects/Trees/tennis_atp/atp_matches_qual_chall_1993.csv'
+    pth = ''
     dataframe = pd.read_csv(pth, nrows=100)
     clean = Clean(dataframe)
     clean.format_date()
