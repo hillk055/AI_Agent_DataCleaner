@@ -49,10 +49,9 @@ class DataManager:
         if self.path is None:
             raise TypeError('Expected path got None. Add path to arguments.')
 
-        '''categories = self.agent.group_files(self.path)
-        categories = categories.split(',')'''
+        categories = self.agent.group_files(self.path)
+        categories = categories.split(',')
 
-        categories = 'atp_rankings, atp_matches_qual_chall, atp_matches_doubles, atp_matches'
         categories = categories.split(',')
         categories = [x.strip() for x in categories]
 
