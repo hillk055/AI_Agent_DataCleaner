@@ -1,6 +1,6 @@
 import os
 import time
-
+import numpy as np
 import pandas as pd
 from datetime import datetime
 from functools import reduce
@@ -13,13 +13,94 @@ def merge_similar_files():
     pass
 
 
-def log_calls(func):
-    def wrapper(*args, **kwargs):
-        print(f"Calling {func.__name__} with args={args}, kwargs={kwargs}")
-        result = func(*args, **kwargs)
-        print(f"{func.__name__} returned {result}")
-        return result
-    return wrapper
+class Logging:
+
+    def __init__(self, func):
+
+        self.log = []
+        self.func = func
+
+    def __call__(self, *args, **kwargs):
+        func_name = self.func.__name__
+        self.log.append(func_name)
+        print(self.log)
+        return self.func(*args, **kwargs)
+
+    def __get__(self, instance, owner):
+
+        return lambda *args, **kwargs: self.__call__(instance, *args, **kwargs)
+
+
+class DataManager:
+
+    def __init__(self, path=None):
+
+        self.path = path
+        self.categories = defaultdict(list)
+        self.errors = defaultdict(list)
+
+    def log_err(self, err_type, err):
+
+        self.errors[err_type].append(err)
+
+    @Logging
+    def group_similar_dataframes(self):
+
+        if self.path is None:
+            raise TypeError('Expected path got None. Add path to arguments.')
+
+        '''categories = self.agent.group_files(self.path)
+        categories = categories.split(',')'''
+
+        categories = 'atp_rankings, atp_matches_qual_chall, atp_matches_doubles, atp_matches'
+        categories = categories.split(',')
+        categories = [x.strip() for x in categories]
+
+        for filename in os.listdir(self.path):
+
+            file_pth = os.path.join(self.path, filename)
+            for cat in categories:
+                if cat in filename:
+                    self.categories[cat].append(file_pth)
+
+    @Logging
+    def stack_similar_dataframes(self, save_type):
+
+        if save_type not in ['excel', 'csv']:
+            raise TypeError(f'Expected save type ["excel", "csv"] got {save_type}')
+
+        pth_to_output = 'DataManager'
+        if not os.path.exists(pth_to_output):
+            os.mkdir(pth_to_output)
+
+        for key, values in self.categories.items():
+
+            dfs = []
+            cols = []
+            for df in values:
+
+                if not df.endswith('.csv') or not df.endswith('.xlsx'):
+                    self.log_err(err_type='Wrong Format', err=df)
+
+                if df.endswith('.csv'):
+                    df = pd.read_csv(df, low_memory=False)
+                    dfs.append(df)
+
+                elif df.endswith('.xlsx'):
+                    df = pd.read_excel(df)
+                    dfs.append(df)
+
+                cols.append(df.columns)
+
+                common_cols = list(reduce(lambda x, y: set(x).intersection(y), cols))
+
+                dfs = [df[common_cols] for df in dfs]
+
+            df = pd.concat(dfs, axis=0)
+            if save_type == 'excel':
+                df.to_excel(f'DataManager/{key}_collected.xlsx', index=False)
+            elif save_type == 'csv':
+                df.to_csv(f'DataManager/{key}_collected.csv', index=False)
 
 
 class Bot:
@@ -93,18 +174,13 @@ class Bot:
 
 class Clean:
 
-    def __init__(self, path=None) -> None:
+    def __init__(self, dataframe=None) -> None:
 
         self.agent = Bot()
-        self.path: str = path
-        self.df= None
+        self.df = dataframe
         self.categories_: dict = defaultdict(list)
         self.save_location: str = 'Cleaned_dataframes'
         self.errors = defaultdict(list)
-
-    def log_err(self, err_type, err):
-
-        self.errors[err_type].append(err)
 
     def drop_(self):
 
@@ -113,62 +189,6 @@ class Clean:
 
     def agent_rename_cols(self):
         pass
-
-    def group_similar_dataframes(self):
-
-        if self.path is None:
-            raise TypeError('Expected path got None. Add path to arguments.')
-
-        '''categories = self.agent.group_files(self.path)
-        categories = categories.split(',')'''
-
-        categories = 'atp_rankings, atp_matches_qual_chall, atp_matches_doubles, atp_matches'
-        categories = categories.split(',')
-        categories = [x.strip() for x in categories]
-
-        for filename in os.listdir(self.path):
-
-            file_pth = os.path.join(self.path, filename)
-            for cat in categories:
-                if cat in filename:
-                    self.categories_[cat].append(file_pth)
-
-    def stack_similar_dataframes(self):
-
-        for key, values in self.categories_.items():
-
-            dfs = []
-            cols = []
-            for df in values:
-
-                if not df.endswith('.csv') or not df.endswith('.xlsx'):
-                    self.log_err(err_type='Wrong Format', err=df)
-
-                if df.endswith('.csv'):
-                    df = pd.read_csv(df)
-                    dfs.append(df)
-
-                elif df.endswith('.xlsx'):
-                    df = pd.read_excel(df)
-                    dfs.append(df)
-
-                cols.append(df.columns)
-
-                common_cols = list(reduce(lambda x, y: set(x).intersection(y), cols))
-
-                dfs = [df[common_cols] for df in dfs]
-            print(key)
-            df = pd.concat(dfs, axis=0)
-            print(df)
-
-
-
-
-
-
-
-
-
 
     @staticmethod
     def remove_delimiters(x):
@@ -188,16 +208,24 @@ class Clean:
             remaining = ''
 
             if 'date' in col:
-                self.df[col] = self.df[col].astype(str).str.zfill(8)
 
-                values = self.df[col]
-                values = [self.remove_delimiters(x) for x in values]
+                self.df[col] = (
+                    self.df[col]
+                    .astype(str)
+                    .str.replace(r'\.0$', '', regex=True)
+                    .str.replace(r'[-/ .]', '', regex=True)
+                    .str.zfill(8)
+                )
 
-                num_date_formats = set([len(x) for x in values])
-                if len(num_date_formats) != 1:
-                    raise ValueError('Mismatching date formats')
+                new_row = self.df[col].apply(lambda val: len(val))
+                unique = new_row.unique()
+                if len(unique) != 1:
+                    most_common_value = self.df[col].value_counts().index[0]
+                    self.df = self.df[self.df[col] == most_common_value]
 
-                for x in values:
+                    # Add an error logger here
+
+                for x in self.df[col]:
 
                     opt1_year, opt2_year = x[:4], x[4:]
                     opt1_year_int, opt2_year_int = int(opt1_year), int(opt2_year)
@@ -237,18 +265,33 @@ class Clean:
                     ft = '%'.join(unique)
                     ft = f'%{ft}'
 
-                    self.df[col] = list(map((lambda x: datetime.strptime(x, ft).strftime("%Y-%m-%d")), values))
+                    self.df[col] = pd.to_datetime(self.df[col], format=ft, errors='coerce')
+                    self.df.dropna(subset=[col], inplace=True)
                     break
 
     def return_df(self):
 
-        return self.df['tourney_date']
+        return self.df
+
+def main():
+
+    pth = ''
+    dm = DataManager(pth)
+    dm.group_similar_dataframes()
+    dm.stack_similar_dataframes(save_type='csv')
 
 
 if __name__ == "__main__":
 
-    pth = ''
-    bot = Clean(pth)
-    bot.group_similar_dataframes()
-    bot.stack_similar_dataframes()
+    pth = 'scrambled_output.xlsx'
+    df = pd.read_excel(pth)
+    clean = Clean(df)
+    start = time.time()
+    clean.format_date()
+    end = time.time()
+    df = clean.return_df()
+    print(df)
+    print(end - start)
+
+
 
