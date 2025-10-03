@@ -49,9 +49,10 @@ class DataManager:
         if self.path is None:
             raise TypeError('Expected path got None. Add path to arguments.')
 
-        categories = self.agent.group_files(self.path)
-        categories = categories.split(',')
+        '''categories = self.agent.group_files(self.path)
+        categories = categories.split(',')'''
 
+        categories = 'atp_rankings, atp_matches_qual_chall, atp_matches_doubles, atp_matches'
         categories = categories.split(',')
         categories = [x.strip() for x in categories]
 
@@ -198,13 +199,56 @@ class Clean:
                 x = x.replace(dlm, '')
         return x
 
+    @staticmethod
+    def find_pattern(x):
+
+        day_month_format = ''
+        date_format = ['_'] * 8
+        remaining = ''
+
+        opt1_year, opt2_year = x[:4], x[4:]
+        opt1_year_int, opt2_year_int = int(opt1_year), int(opt2_year)
+
+        if 1900 <= opt1_year_int <= 2099 and 1900 <= opt2_year_int <= 2099:
+            return
+
+        elif 1900 <= opt1_year_int <= 2099:
+            remaining = x.replace(opt1_year, '')
+            date_format[:4] = 'Y' * 4
+
+        elif 1900 <= opt2_year_int <= 2099:
+            remaining = x.replace(opt2_year, '')
+            date_format[4:] = 'Y' * 4
+
+        split = len(remaining) // 2
+        one, two = remaining[:split], remaining[split:]
+
+        if int(one) == int(two) or (int(one) < 12 and int(two) < 12):
+            return
+
+        elif int(one) > 12:
+
+            day_month_format = f'ddmm'
+
+        elif int(two) > 12:
+
+            day_month_format = f'mmdd'
+
+        find_filler = [pos for pos, x in enumerate(date_format) if x == '_']
+        first_filler, last_filler = find_filler[0], find_filler[-1] + 1
+
+        date_format[first_filler:last_filler] = day_month_format
+
+        seen = set()
+        unique = [x for x in date_format if not (x in seen or seen.add(x))]
+        ft = '%'.join(unique)
+        return f'%{ft}'
+
     def format_date(self):
 
-        for col in self.df.columns:
+        ft = None
 
-            day_month_format = ''
-            date_format = ['_'] * 8
-            remaining = ''
+        for col in self.df.columns:
 
             if 'date' in col:
 
@@ -216,7 +260,7 @@ class Clean:
                     .str.zfill(8)
                 )
 
-                new_row = self.df[col].apply(lambda val: len(val))
+                new_row = self.df[col].str.len()
                 unique = new_row.unique()
                 if len(unique) != 1:
                     most_common_value = self.df[col].value_counts().index[0]
@@ -226,51 +270,17 @@ class Clean:
 
                 for x in self.df[col]:
 
-                    opt1_year, opt2_year = x[:4], x[4:]
-                    opt1_year_int, opt2_year_int = int(opt1_year), int(opt2_year)
+                    ft = self.find_pattern(x)
+                    if ft is not None:
+                        break
 
-                    if 1900 <= opt1_year_int <= 2099 and 1900 <= opt2_year_int <= 2099:
-                        continue
-
-                    elif 1900 <= opt1_year_int <= 2099:
-                        remaining = x.replace(opt1_year, '')
-                        date_format[:4] = 'Y' * 4
-
-                    elif 1900 <= opt2_year_int <= 2099:
-                        remaining = x.replace(opt2_year, '')
-                        date_format[4:] = 'Y' * 4
-
-                    split = len(remaining) // 2
-                    one, two = remaining[:split], remaining[split:]
-
-                    if int(one) == int(two) or (int(one) < 12 and int(two) < 12):
-                        continue
-
-                    elif int(one) > 12:
-
-                        day_month_format = f'ddmm'
-
-                    elif int(two) > 12:
-
-                        day_month_format = f'mmdd'
-
-                    find_filler = [pos for pos, x in enumerate(date_format) if x == '_']
-                    first_filler, last_filler = find_filler[0], find_filler[-1] + 1
-
-                    date_format[first_filler:last_filler] = day_month_format
-
-                    seen = set()
-                    unique = [x for x in date_format if not (x in seen or seen.add(x))]
-                    ft = '%'.join(unique)
-                    ft = f'%{ft}'
-
-                    self.df[col] = pd.to_datetime(self.df[col], format=ft, errors='coerce')
-                    self.df.dropna(subset=[col], inplace=True)
-                    break
+                self.df[col] = pd.to_datetime(self.df[col], format=ft, errors='coerce')
+                self.df.dropna(subset=[col], inplace=True)
 
     def return_df(self):
 
         return self.df
+
 
 def main():
 
